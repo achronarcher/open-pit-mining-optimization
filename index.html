@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<script>
+  MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']]
+    }
+  };
+</script>
+<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+a:hover.screenshot {
+  opacity: .7;
+}
+
+text {
+  font-family: sans-serif
+}
+
+rect:hover {
+  opacity: .8;
+}
+
+.typea {
+  fill: rgb(255,255,212);
+}
+
+.typeb {
+  fill: rgb(254,217,142);
+}
+
+.typec {
+  fill: rgb(254,153,41);
+}
+
+.typed {
+  fill: rgb(217,95,14);
+}
+
+.typee {
+  fill: rgb(153,52,4);
+}
+
+</style>
+
+</style>
+<body>
+  <ul id="nav">
+    <li class="current"><a href="#intro">Intro</a></li>
+    <li><a href="#problem">Problem</a></li>
+    <li><a href="#model">Model</a></li>
+    <li><a href="#implementation">Implementation</a></li>
+    <li><a href="#demo">Live Demo</a></li>
+    <li><a href="#try">Try Gurobi for Free</a></li>
+  </ul>
+  <div id="example_container">
+    <div class="example_section" id="intro">
+      <h1>Open-Pit Mining</h1>
+        <subtitle>with integer programming and Gurobi</subtitle>
+    </div>
+    <p>
+      In this example we'll solve a simple mining problem: how to
+      extract minerals from an open pit in order to generate the
+      most profit.
+    </p>
+
+    <p>
+    We'll construct a mathematical model of the business problem,
+    implement this model in Gurobi's Python interface, and compute and
+    visualize an optimal solution.
+    </p>
+
+    <p>
+      Although your own business may not involve operating a mine, the
+      same basic techniques used in this example can be used for other
+      applications like selecting what projects your business should
+      undertake.
+    </p>
+
+    <h3>
+      Click the screenshot to skip directly to the Live Demo!
+    </h3>
+    <p>
+      <a href="#demo" class="screenshot">
+        <img src="screenshot.png" alt="Live Demo" style="width: 30%; vertical-align: middle;">
+      </a>
+    </p>
+
+    <div class="example_section" id="problem_description">
+      <h2><a href="#problem" name="problem">Problem Description</a></h2>
+
+      <div style="float:right;">
+          <img src="openPitMine.jpg" alt="Open Pit Mine" style="width:200px;">
+      </div>
+
+      <p>An
+        <a href="http://www.mine-engineer.com/mining/open_pit.htm">open-pit
+        mine</a> is a large cut made in the surface of the earth
+        for the purpose of extracting ore. Unlike other mines, an
+        <a href="https://en.wikipedia.org/wiki/Open-pit_mining">open-pit
+        mine</a> does not require tunneling into the earth. The
+        mine remains open to the surface for its entire lifetime.
+      </p>
+
+      <div style="clear:both"></div>
+
+      <aside>An open-pit gold mine in Australia. <span style="font-size: 10px">Source: <a href="https://commons.wikimedia.org/wiki/File:Sunrise_Dam_open_pit.jpg">Calistemon</a> - <a href="https://creativecommons.org/licenses/by-sa/3.0/deed.en">CC BY-SA 3.0</a></span>
+      </aside>
+
+      <p>Engineers use measurements of gravity, magnetism, and
+        radioactivity to find a location for the mine that is rich in
+        metal ore. As part of this survey, the subsurface of the
+        unexcavated mine is divided into multiple blocks, and the
+        concentraction of ore in each block is determined. Blocks
+        with larger concentrations of ore provide more revenue for the
+        mine.
+       </p>
+
+
+      <p>However, there is a cost associated with extracting each
+        block from the mine. Usually the deeper a block lies the more
+        expensive it is to remove. In addition, blocks cannot be
+        removed in arbitrary order. To remove a block, we must remove
+        the blocks directly above, and to the left, and right, of it.
+      </p>
+
+      <p>
+        The picture below shows a set of blocks below the surface of
+        the earth. Hover over each block, to see which blocks must be removed to access
+        it. Notice that to remove block 5, we must first remove blocks 1, 2, and 3.
+      </p>
+
+      <div id="blockdemo">
+      </div>
+      <aside>
+        An open pit mine with 6 blocks
+      </aside>
+
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+      <script>
+        var width = 600,
+            height = 250,
+            size = width/6;
+
+        var svgdemo = d3.select("#blockdemo").append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+        var backgroundG = svgdemo.append("g");
+
+        var blocksG = svgdemo.append("g");
+
+        backgroundG.append("rect").attr("x", 0).attr("y", 0)
+                   .attr("height", height).attr("width", width)
+                   .attr("fill", "#eaf1ea");
+
+        var blockdata = [];
+
+        for (var i = 0; i < 6; i++) {
+          if (i < 4) {
+            blockdata.push([(i+1)*size, (height - 2*size)/2]);
+          } else {
+            blockdata.push([(i-2)*size, height/2]);
+          }
+        }
+
+        var blocks = blocksG.selectAll("rect")
+                            .data(blockdata)
+                            .enter()
+                            .append("rect")
+                            .attr("x", function(d) { return d[0]; })
+                            .attr("y", function(d) { return d[1]; })
+                            .attr("id", function(d,i) { return "blockdemo" + String(i); })
+                            .attr("width", size)
+                            .attr("height", size)
+                            .attr("stroke", "black")
+                            .attr("fill", "#cdc")
+                            .on("mouseover", blockhover)
+                            .on("mouseout", blockstop);
+
+        var texts = svgdemo.selectAll("text")
+                           .data(blockdata)
+                           .enter()
+                           .append("text")
+                           .text(function(d,i) { return String(i+1); })
+                           .attr("x", function(d) { return d[0] + size/2; })
+                           .attr("y", function(d) { return d[1] + size/2; })
+                           .attr("font-family", "sans-serif")
+                           .attr("font-size", "18px")
+                           .attr("fill", "white")
+                           .attr("font-weight", 800)
+                           .attr("text-anchor", "middle");
+
+
+        svgdemo.append("line")
+               .attr("x1", 0)
+               .attr("x2", width)
+               .attr("y1", (height - 2*size)/2)
+               .attr("y2", (height - 2*size)/2)
+               .attr("stroke", "black")
+               .attr("stroke-width", 2);
+
+        function blockhover() {
+          var id = d3.select(this).attr("id").slice(-1);
+          id = parseInt(id);
+          if (id < 4) {
+            d3.select(this).attr("fill", "#a3b0a3");
+          }
+          if (id === 4 ) {
+            d3.select("#blockdemo0").attr("fill", "#a3b0a3");
+            d3.select("#blockdemo1").attr("fill", "#a3b0a3");
+            d3.select("#blockdemo2").attr("fill", "#a3b0a3");
+            d3.select(this).attr("fill", "#a3b0a3");
+          }
+          if (id === 5) {
+            d3.select("#blockdemo1").attr("fill", "#a3b0a3");
+            d3.select("#blockdemo2").attr("fill", "#a3b0a3");
+            d3.select("#blockdemo3").attr("fill", "#a3b0a3");
+            d3.select(this).attr("fill", "#a3b0a3");
+          }
+        }
+
+        function blockstop() {
+          for (var i = 0; i < blockdata.length; i++ ) {
+            var id = "#blockdemo" + String(i);
+            d3.select(id).attr("fill", "#cdc");
+          }
+        }
+      </script>
+
+      <p>The business problem that a mine manager faces is to
+        determine the set of blocks to remove from the mine. The goal
+        is to extract the most profitable blocks from the mine, while
+        leaving unprofitable blocks.  However, the mine manager may be
+        forced to extract unprofitable blocks in order to reach those
+        that are rich in ore. Typically a plan, an order for the
+        excavation of blocks in the mine, is made before any digging
+        begins.
+        </p>
+
+    </div>
+
+
+    <div class="example_section" id="example_section">
+      <h2><a href="#model" name="model">Mathematical Model</a></h2>
+
+      <p> The open-pit mining problem is an instance of a more general
+        problem known
+        as <a href="https://books.google.com/books?id=nMwFCAAAQBAJ&pg=PA1&source=gbs_toc_r&cad=4#v=onepage&q&f=false">project
+        selection</a>. In the project selection problem, a business
+        manager wants to select a group of projects to undertake. Some
+        projects are profitable, others are costly, and there are a
+        set of dependencies between projects. We'll describe the
+        mathematical model for this business problem in terms of
+        blocks in a mine. But it's important to remember that the
+        blocks can be viewed more generally as projects that a
+        business wishes to complete.
+        </p>
+
+      <p>We begin by defining a binary variable $x_i$ for each block
+        in the mine:
+        \[
+        x_{i} = \begin{cases} 1 & \text{if block $i$ is extracted} \\
+                                        0 & \text{otherwise}.
+                          \end{cases}
+        \]
+      </p>
+
+      <p>In addition, there is a value $v_i$ associated with each block,
+        and a cost $c_i$ to extract the block. This allows us to compute
+        a profit $p_i = v_i - c_i$ for each block.
+      </p>
+
+      <p>To remove a block, we must first remove the blocks directly
+        above, and to the left, and right, of it. We can impose these
+        constraints by constructing a precedence graph $G(V,E)$.
+        The vertices $V$ in the graph represent the blocks, and we
+        create an edge $(i, j)$ in the graph, if block $j$ must
+        be removed before block $i$.
+      </p>
+
+      <p>Our optimization model is then:
+        \[
+        \begin{align*}
+        \text{maximize}   & \quad {\displaystyle \sum_{i} p_i x_i} \\
+        \text{subject to} & \quad x_i \leq x_j \quad \forall (i,j) \, \in E \label{prec} \tag{1}\\
+                          & \quad x_i \in \{ 0, 1 \} \, \quad \forall i \in V \label{int}.
+        \end{align*}
+        \]
+      </p>
+
+      <p> The objective of the model is simple, maximize the profit of the
+        blocks that are selected to be removed.
+      </p>
+
+      <p>Constraint \ref{prec} enforces the precendent constraints on
+        the removal of blocks. If $x_i$ is 1, meaning block $i$ should
+        be removed, then we must also have that $x_j$ is 1. The set of
+        edges $E$ in the graph corresponds exactly to the pairs
+        $(i,j)$ where block $j$ must be removed before block $i$.
+        </p>
+
+      <p>
+      For more information on models for open pit mining see the
+      book: <i><a href="http://liu.diva-portal.org/smash/get/diva2:442025/FULLTEXT01.pdf">Mathematical
+      Optimization Models and Methods for Open-Pit Mining</a></i>.
+      </p>
+
+
+    </div>
+    <div class="example_section" id="implementation_">
+      <h2><a href="#implementation" name="implementation">Implementation</a></h2>
+      <p>Below is the full implementation of the model (and the associated data) in
+        Gurobi's Python interface:
+      </p>
+      <examplecode>
+      <br>from gurobipy import *
+      <br>
+      <br># Example data for problem
+      <br>cost = [100, 100, 100, 100, 200, 200];
+      <br>value = [50, 150, 150, 150, 300, 50];
+      <br>edges = [[4,0], [4,1], [4,2], [5,1], [5,2], [5,3]];
+      <br>
+      <br>m = Model()
+      <br>n = len(cost) # number of blocks
+      <br>
+      <br># Indicator variable for each block
+      <br>x = {}
+      <br>for i in range(n):
+         <br>   x[i] = m.addVar(vtype=GRB.BINARY, name="x%d" % i)
+
+      <br>m.update()
+
+      <br># Set objective
+      <br>m.setObjective(quicksum((value[i] - cost[i])*x[i] for i in range(n)), GRB.MAXIMIZE)
+      <br>
+      <br># Add constraints
+      <br>for edge in edges:
+         <br>   u = edge[0]
+         <br>   v = edge[1]
+         <br>   m.addConstr(x[u] &lt;= x[v])
+      <br>
+      <br>m.optimize()
+      </examplecode>
+    </div>
+    <div class="example_section" id="Live_Demo">
+      <h2><a href="#demo" name="demo">Live Demo</a></h2>
+      <p> As an example we consider a mine where 28 blocks on 4 levels
+      have been identified. The colors of the blocks correspond to different
+      concentrations of ore (and hence different values of the blocks) and
+      extraction costs increase with depth.
+      </p>
+      <p> You can change the ore concentration of each block by clicking them.
+      You can click the buttons on the top to change the type of concentration
+      you want to add. Click the Mine away! button to compute the optimal block
+      removing order using Gurobi. To restart, click on any block. </p>
+      <div id="demoarea">
+      </div>
+      <button class="pure-button" onclick="compute()">Mine away!</button>
+    </div>
+
+    <p>
+      <button class="pure-button" onclick="toggle_div()">Gurobi Log</button>
+    </p>
+
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+    <script>
+      function toggle_div() {
+        var logfile = d3.select('#logfile');
+        if (logfile.style("display") === "none") {
+          logfile.style("display", "block");
+        } else {
+          logfile.style("display", "none");
+        }
+
+      }
+    </script>
+
+    <examplecode id=logfile>
+    </examplecode>
+
+    <div class="example_section" id="try_Gurobi">
+      <h2><a href="#try" name="try">Try Gurobi for Free</a></h2>
+      <p> We hope this example has taught you a bit about open-pit
+        mining and using Gurobi. We encourage you to try the example
+        out for yourself with Gurobi.  To enable this, we provide easy
+        access to a full-featured evaluation version of Gurobi.
+      </p>
+      <div class="col_5 column">
+        <a href="http://www.gurobi.com/downloads/evaluation-request">
+          <button class="red stack-button">
+            <i class="fa fa-lg fa-line-chart"></i>
+            Commercial Users: Free Evaluation Version
+          </button>
+        </a>
+      </div>
+      <div class="col_5 column">
+        <a href="http://www.gurobi.com/downloads/download-center">
+          <button class="red stack-button">
+            <i class="fa fa-lg fa-line-chart"></i>
+            Academic Users: Free Academic Version
+          </button>
+        </a>
+      </div>
+      <p>
+        We are always happy to discuss your needs and answer your questions.
+        Just <a href="http://www.gurobi.com/company/contact-us">contact us</a>
+        at your convenience.
+      </p>
+    </div>
+
+    <div style="min-height:100px"></div>
+<!--[if gt IE 8]><!--><script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script><!--<![endif]-->
+<script src="jquery.nav.js"></script>
+<script>
+  $(document).ready(function() {
+  console.log('calling onePageNav');
+  $('#nav').onePageNav({scrollOffset:120});
+  });
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/spin.js/1.2.7/spin.min.js"></script>
+
+    <script>
+
+// Hide Log File initially
+d3.select('#logfile').style("display", "none");
+
+
+// Create data for each layer of blocks
+var numBlocks = 28
+var blocks = [];
+for (var i = 0; i < numBlocks; i++) {
+  blocks.push(i);
+}
+
+var layer2 = 10; var layer3 = 18; var layer4 = 24;
+
+// Different types
+var types = ["typea","typeb","typec","typed","typee"];
+
+// Type variable
+var type = "typeb";
+
+var width = 700,
+    height = 500,
+    size = width/(layer2 + 2);
+
+// Create precedence graph
+edges = [];
+
+for (var i = layer2; i < layer3; i++) { // range(10,18)
+    edges.push([i,i-layer2]);
+    edges.push([i,i-layer2+1]);
+    edges.push([i,i-layer2+2]);
+}
+
+for (var i = layer3; i < layer4; i++) { // range(18,24)
+    edges.push([i,i-(layer3-layer2)]);
+    edges.push([i,i-(layer3-layer2)+1]);
+    edges.push([i,i-(layer3-layer2)+2]);
+}
+
+for (var i = layer4; i < numBlocks; i++) { // range(24,28)
+    edges.push([i,i-(layer4-layer3)])
+    edges.push([i,i-(layer4-layer3)+1])
+    edges.push([i,i-(layer4-layer3)+2])
+}
+
+// Create cost and value data
+cost = [];
+value = [];
+for (var i = 0; i < numBlocks; i++) {
+  if (i >= layer2 && i < layer3) {
+    cost.push(200);
+  }
+  else if (i >= layer3 && i < layer4) {
+    cost.push(300);
+  }
+  else if (i >= layer4) {
+    cost.push(500);
+  }
+  else {
+    cost.push(100);
+  }
+  value.push(0);
+}
+
+var profit = 0;
+
+// Start graphics
+var svg = d3.select("#demoarea").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+// Create background
+var backgroundG = svg.append("g")
+    backgroundG.append("polygon").attr("points", "0,233.4, 0,500, 700,500, 700,233.4")
+                                 .attr("fill", "rgb(50,50,50)")
+                                 .attr("stroke", "black")
+                                 .attr("stroke-width", 1);
+    backgroundG.append("polygon").attr("points", "0,233.4, 0,0, 700,0, 700,233.4")
+                                 .attr("fill", "rgb(6,214,255)");
+
+var buttonsG = svg.append("g");
+
+var buttonsSelectG = svg.append("g");
+
+var buttons = buttonsG.selectAll("circle")
+                 .data(types)
+                 .enter()
+                 .append("circle")
+                 .on("mousedown", buttonpress);
+
+    buttons.attr("cx",  function(d,i) {
+                          return (i+.5)*size/1.2;
+                        })
+           .attr("cy", 20)
+           .attr("r", 15)
+           .attr("class", function(d) { return d;} )
+           .attr("stroke", "black")
+           .attr("stroke-width", 2);
+
+redraw(type);
+
+var labelsG = svg.append("g");
+
+var labels = labelsG.selectAll("text")
+                    .data(types)
+                    .enter()
+                    .append("text")
+
+    labels.attr("x",  function(d,i) {
+                          return (i+.5)*size/1.2;
+                        })
+          .attr("y", 50)
+          .text(function (d) { if (d === "typea") {
+                                 return "0k$";
+                               }
+                               else if (d === "typeb") {
+                                 return "150k$";
+                               }
+                               else if (d === "typec") {
+                                 return "250k$";
+                               }
+                               else if (d === "typed") {
+                                 return "400k$";
+                               }
+                               else if (d === "typee") {
+                                 return "700k$";
+                               }
+                               else {
+                                 return " ";}
+                             });
+
+labelsG.append("text")
+       .attr("x", 30)
+       .attr("y", 4.5*size)
+       .text("100k$");
+
+labelsG.append("text")
+       .attr("x", 30 + size)
+       .attr("y", 5.5*size)
+       .text("200k$");
+
+labelsG.append("text")
+       .attr("x", 30 + 2*size)
+       .attr("y", 6.5*size)
+       .text("300k$");
+
+labelsG.append("text")
+       .attr("x", 30 + 3*size)
+       .attr("y", 7.5*size)
+       .text("500k$");
+
+labelsG.selectAll("text")
+       .attr("font-size", "14px")
+       .attr("fill", "white")
+       .attr("text-anchor", "middle");
+
+var blocksG = svg.append("g");
+
+var blockRect = blocksG.selectAll("rect")
+                   .data(blocks)
+                   .enter()
+                   .append("rect")
+                   .on("mousedown", mousedown);
+
+    blockRect.attr("x", function(d) {
+              if (d >= layer2 && d < layer3) {
+                return (d + 2 - layer2)*size;
+              }
+              else if (d >= layer3 && d < layer4) {
+                return (d + 3 - layer3)*size;
+              }
+              else if (d >= layer4) {
+                return (d + 4 - layer4)*size;
+              }
+              else {
+                return (d+1)*size;
+              }
+              })
+              .attr("y", function(d) {
+              if (d >= layer2 && d < layer3) {
+                return 5*size;
+              }
+              else if (d >= layer3 && d < layer4) {
+                return 6*size;
+              }
+              else if (d >= layer4) {
+                return 7*size;
+              }
+              else {
+                return 4*size;
+              }
+              })
+              .attr("height", size)
+              .attr("width", size)
+              .attr("stroke", "black")
+              .attr("stroke-width", 1)
+              .attr("class", function (d) {
+                        var typeinitial;
+                        if (d === 0 || d === 6 || d == 9 || d == 11 || d == 16 || d == 17) {
+                           typeinitial = "typed";
+                        }
+                        else if (d === 1 || d === 4 || d == 7 || d == 22 || d == 24) {
+                           typeinitial = "typeb";
+                        }
+                        else if (d === 18 || d === 21 || d == 26 || d == 27) {
+                           typeinitial = "typee";
+                        }
+                        else {
+                           typeinitial = "typea";
+                        }
+                        console.log(typeinitial)
+                        return typeinitial;
+                    });
+
+var solutionG = svg.append("g");
+
+var solutionRect = solutionG.selectAll("rect")
+                  .on("mousedown", removeSol);
+
+// sets type of clicked rectangle
+function mousedown() {
+  // Remove rectangles from previous solution
+  solutionG.selectAll("rect")
+           .remove();
+
+  d3.select(this)
+    .attr("class", type);
+}
+
+// Change the type
+function buttonpress() {
+  type = d3.select(this).attr("class")
+  console.log(type)
+  redraw(type);
+}
+
+function removeSol() {
+  solutionG.selectAll("rect")
+           .remove();
+}
+
+function redraw(type) {
+  buttonsSelectG.selectAll("circle").remove("circle");
+
+  var idx = types.indexOf(type);
+
+  console.log('idx', idx);
+
+  buttonsSelectG.append("circle")
+                .attr("cx", (idx+.5)*size/1.2)
+                .attr("cy", 20)
+                .attr("r", 15)
+                .attr("fill", "none")
+                .attr("stroke", "black")
+                .attr("stroke-width", 4);
+}
+
+// Compute
+function compute() {
+  blocksG.selectAll("rect").attr("class", function(d) {
+                                      var tempType = d3.select(this).attr("class");
+                                      if (tempType === "typea") {
+                                        value[d] = 0;
+                                      }
+                                      if (tempType === "typeb") {
+                                        value[d] = 150;
+                                      }
+                                      if (tempType === "typec") {
+                                        value[d] = 250;
+                                      }
+                                      if (tempType === "typed") {
+                                        value[d] = 400;
+                                      }
+                                      if (tempType === "typee") {
+                                        value[d] = 700;
+                                      }
+                                      return d3.select(this).attr("class");
+                                    });
+
+  console.log('cost',cost);
+  console.log('value',value);
+  console.log('edges',edges);
+
+  d3.json('openPitMining.py')
+    .header('Content-Type', 'application/json')
+    .post(JSON.stringify({'cost': cost,
+                          'value': value,
+                          'edges': edges }), serverResponse);
+}
+
+function serverResponse(error, data) {
+   console.log('serverResponse');
+   console.log('data', data);
+   if (!error) {
+      if ('solution' in data) {
+          // Import solution and put it into correct format
+          var temporarySol = data['solution'];
+          if (temporarySol[0] === "error") {
+            alert("10 second solve time limit exceeded.");
+            return;
+          }
+          var solution = temporarySol[0];
+
+          var logMsg = temporarySol[1]; // Log message to display
+
+          d3.select('#logfile').html(logMsg);
+
+          var solTemp = [];
+          profit = solution[solution.length - 1]; // Last element is profit
+
+          console.log('test',solution)
+
+          solution = solution.slice(0,solution.length-1);
+
+          console.log('test',solution)
+
+          for (var i = 0; i < solution.length; i++) {
+            if (solution[i] >= 0.5) {
+              solTemp.push(i);
+            }
+          }
+          solution = solTemp;
+          console.log('solution', solution)
+          console.log('profit', profit)
+
+          solutionG.selectAll("rect")
+                   .remove();
+
+          var rectSol = solutionG.selectAll("rect")
+                                   .data(solution)
+                                   .enter()
+                                   .append("rect");
+
+          rectSol.attr("x", function(d) {
+                      if (d >= layer2 && d < layer3) {
+                        return (d + 2 - layer2)*size;
+                      }
+                      else if (d >= layer3 && d < layer4) {
+                        return (d + 3 - layer3)*size;
+                      }
+                      else if (d >= layer4) {
+                        return (d + 4 - layer4)*size;
+                      }
+                      else {
+                        return (d+1)*size;
+                      }
+                      })
+                      .attr("y", function(d) {
+                      if (d >= layer2 && d < layer3) {
+                        return 5*size;
+                      }
+                      else if (d >= layer3 && d < layer4) {
+                        return 6*size;
+                      }
+                      else if (d >= layer4) {
+                        return 7*size;
+                      }
+                      else {
+                        return 4*size;
+                      }
+                      })
+                      .attr("height", size)
+                      .attr("width", size)
+                      .attr("fill", "rgb(6,214,255)")
+                      .attr("stroke", "rgb(6,214,255)")
+                      .attr("stroke-width", 1.8)
+                      .style("opacity", 0)
+                      .style("stroke-opacity", 0)
+                      .transition()
+                      .style("opacity", 1)
+                      .style("stroke-opacity", 1)
+                      .duration(500)
+                      .delay(function(i) { return i*100 });
+
+          profit = profit/1000;
+
+          solutionG.selectAll("text").remove();
+
+          solutionG.append("text")
+                    .text("Profit: " + String(profit) + " million dollars")
+                    .attr("x", width/2)
+                    .attr("y", 150)
+                    .attr("font-size", "22px")
+                    .attr("fill", "white")
+                    .attr("text-anchor", "middle");
+
+
+          solutionRect = solutionG.selectAll("rect")
+                  .on("mousedown", removeSol);
+        }
+   }
+}
+    </script>
+  </div>
